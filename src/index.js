@@ -1,10 +1,20 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const { logger } = require('./utils/logger');
+
+// Verificar variables de entorno requeridas
+const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  logger.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  process.exit(1);
+}
+
 const whatsappRoutes = require('./routes/whatsapp');
 const { createClient } = require('@supabase/supabase-js');
 const { setupAuthMiddleware } = require('./middleware/auth');
-const { logger } = require('./utils/logger');
 
 const app = express();
 const port = process.env.PORT || 3001;
