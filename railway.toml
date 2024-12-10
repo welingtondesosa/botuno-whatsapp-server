@@ -9,5 +9,14 @@ healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
-[service]
+[[services]]
 name = "botuno-whatsapp"
+internal_port = 3001
+protocol = "http"
+
+[services.environment]
+PORT = "3001"
+NODE_ENV = "production"
+CORS_ORIGIN = "https://botuno.com"
+LOG_LEVEL = "info"
+CHROME_BIN = "/usr/bin/chromium"

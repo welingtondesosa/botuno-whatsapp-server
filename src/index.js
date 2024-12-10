@@ -3,6 +3,18 @@ const express = require('express');
 const cors = require('cors');
 const { logger } = require('./utils/logger');
 
+// Debug: Log available environment variables (without sensitive values)
+logger.info('Available environment variables:', {
+  available: Object.keys(process.env),
+  PORT: process.env.PORT,
+  NODE_ENV: process.env.NODE_ENV,
+  CORS_ORIGIN: process.env.CORS_ORIGIN,
+  LOG_LEVEL: process.env.LOG_LEVEL,
+  CHROME_BIN: process.env.CHROME_BIN,
+  SUPABASE_URL_SET: !!process.env.SUPABASE_URL,
+  SUPABASE_SERVICE_KEY_SET: !!process.env.SUPABASE_SERVICE_KEY
+});
+
 // Verificar variables de entorno requeridas
 const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'CORS_ORIGIN'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
