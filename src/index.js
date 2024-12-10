@@ -92,9 +92,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY,
   {
     auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: false
+      persistSession: false
+    },
+    global: {
+      headers: {
+        'X-Client-Info': 'botuno-whatsapp-server'
+      }
     }
   }
 );
