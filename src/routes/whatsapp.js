@@ -53,58 +53,49 @@ const verifyToken = async (req, res, next) => {
 router.post('/session', verifyToken, async (req, res) => {
   try {
     const userId = req.userId;
-    logger.info(`Creating WhatsApp session for user: ${userId}`);
 
-    // Verificar si ya existe una sesión
+    // Verificar si ya existe una sesión para este usuario
     if (clients.has(userId)) {
-      logger.info(`Session already exists for user: ${userId}`);
-      return res.status(200).json({ status: 'connected', message: 'Session already exists' });
+      logger.warn(`Session already exists for user ${userId}`);
+      return res.status(400).json({ error: 'Session already exists for this user' });
     }
 
-    // Crear una nueva sesión de WhatsApp
+    logger.info(`Creating new session for user ${userId}`);
+
     const client = await create({
       session: `user-${userId}`,
       catchQR: async (base64Qr) => {
         try {
-          logger.info(`QR Code generated for user: ${userId}`);
-          // Guardar el código QR en Supabase
+          logger.info(`Storing QR code for user ${userId}`);
           const { error } = await supabase
             .from('whatsapp_sessions')
             .upsert({
-              owner_id: userId,
+              user_id: userId,
               qr_code: base64Qr,
               status: 'PENDING',
+              updated_at: new Date().toISOString()
             });
 
           if (error) {
-            logger.error(`Error saving QR code for user ${userId}:`, error);
+            logger.error(`Error storing QR code: ${error.message}`);
             throw error;
           }
-
-          res.json({ qr: base64Qr });
         } catch (error) {
-          logger.error('Error in catchQR:', error);
-          res.status(500).json({ error: 'Error generating QR code' });
+          logger.error(`Error in catchQR: ${error.message}`);
         }
       },
-      statusFind: async (statusSession, session) => {
-        try {
-          logger.info(`Status update for user ${userId}: ${statusSession}`);
-          // Actualizar el estado en Supabase
-          const { error } = await supabase
-            .from('whatsapp_sessions')
-            .upsert({
-              owner_id: userId,
-              status: statusSession,
-            });
-
-          if (error) {
-            logger.error(`Error updating session status for user ${userId}:`, error);
-            throw error;
-          }
-        } catch (error) {
-          logger.error('Error in statusFind:', error);
-        }
+      puppeteerOptions: {
+        executablePath: process.env.CHROME_BIN || '/usr/bin/chromium',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-gpu'
+        ],
       },
       headless: true,
       useChrome: false,
