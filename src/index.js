@@ -47,8 +47,17 @@ const errorHandler = (err, req, res, next) => {
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN,
-  methods: ['GET', 'POST', 'DELETE'],
+  origin: (origin, callback) => {
+    const allowedOrigins = process.env.CORS_ORIGIN.split(',').map(o => o.trim());
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      logger.warn(`Blocked request from unauthorized origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
   optionsSuccessStatus: 204
 };
@@ -59,9 +68,10 @@ app.use(express.json());
 
 // Request logging middleware
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.url}`, {
+  logger.info(`Incoming request: ${req.method} ${req.url}`, {
     origin: req.headers.origin,
-    ip: req.ip
+    ip: req.ip,
+    hasAuth: !!req.headers.authorization
   });
   next();
 });
@@ -79,13 +89,20 @@ app.get('/health', (req, res) => {
 // Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  process.env.SUPABASE_SERVICE_KEY,
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false
+    }
+  }
 );
 
-// Auth middleware
-app.use(setupAuthMiddleware(supabase));
+// Auth middleware - solo aplicar a las rutas de WhatsApp
+app.use(['/whatsapp', '/api/whatsapp'], setupAuthMiddleware(supabase));
 
-// Rutas de WhatsApp (soporta ambas rutas: /whatsapp y /api/whatsapp)
+// Rutas de WhatsApp
 app.use('/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 

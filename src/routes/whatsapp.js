@@ -52,21 +52,22 @@ const verifyToken = async (req, res, next) => {
 // Crear una nueva sesión de WhatsApp
 router.post('/session', verifyToken, async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.userId; 
+    logger.info(`Creating WhatsApp session for user: ${userId}`);
 
     // Verificar si ya existe una sesión para este usuario
     if (clients.has(userId)) {
-      logger.warn(`Session already exists for user ${userId}`);
-      return res.status(400).json({ error: 'Session already exists for this user' });
+      logger.info(`Session already exists for user: ${userId}`);
+      return res.status(200).json({ status: 'connected', message: 'Session already exists' });
     }
 
-    logger.info(`Creating new session for user ${userId}`);
-
+    // Crear una nueva sesión de WhatsApp
     const client = await create({
       session: `user-${userId}`,
       catchQR: async (base64Qr) => {
         try {
-          logger.info(`Storing QR code for user ${userId}`);
+          logger.info(`QR Code generated for user: ${userId}`);
+          // Guardar el código QR en Supabase
           const { error } = await supabase
             .from('whatsapp_sessions')
             .upsert({
@@ -82,6 +83,26 @@ router.post('/session', verifyToken, async (req, res) => {
           }
         } catch (error) {
           logger.error(`Error in catchQR: ${error.message}`);
+        }
+      },
+      statusFind: async (statusSession, session) => {
+        try {
+          logger.info(`Status update for user ${userId}: ${statusSession}`);
+          // Actualizar el estado en Supabase
+          const { error } = await supabase
+            .from('whatsapp_sessions')
+            .upsert({
+              user_id: userId,
+              status: statusSession,
+              updated_at: new Date().toISOString()
+            });
+
+          if (error) {
+            logger.error(`Error updating session status: ${error.message}`);
+            throw error;
+          }
+        } catch (error) {
+          logger.error(`Error in statusFind: ${error.message}`);
         }
       },
       puppeteerOptions: {
@@ -104,51 +125,152 @@ router.post('/session', verifyToken, async (req, res) => {
 
     // Almacenar el cliente en memoria
     clients.set(userId, client);
-    logger.info(`WhatsApp session created successfully for user: ${userId}`);
+    logger.info(`WhatsApp session created for user: ${userId}`);
 
+    res.status(200).json({ status: 'created', message: 'WhatsApp session created' });
   } catch (error) {
-    logger.error(`Error creating WhatsApp session for user ${req.userId}:`, error);
-    res.status(500).json({ 
-      error: 'Failed to create WhatsApp session',
-      message: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred'
-    });
+    logger.error(`Error creating WhatsApp session: ${error.message}`);
+    res.status(500).json({ error: 'Error creating WhatsApp session' });
   }
 });
 
-// Eliminar una sesión de WhatsApp
+// Obtener el estado de la sesión de WhatsApp
+router.get('/session/status', verifyToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    logger.info(`Getting session status for user: ${userId}`);
+
+    // Obtener el estado actual de la base de datos
+    const { data, error } = await supabase
+      .from('whatsapp_sessions')
+      .select('status, qr_code')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      logger.error(`Error fetching session status: ${error.message}`);
+      return res.status(500).json({ error: 'Error fetching session status' });
+    }
+
+    if (!data) {
+      return res.status(404).json({ status: 'NOT_FOUND', message: 'No session found' });
+    }
+
+    res.status(200).json({
+      status: data.status,
+      qrCode: data.qr_code
+    });
+  } catch (error) {
+    logger.error(`Error getting session status: ${error.message}`);
+    res.status(500).json({ error: 'Error getting session status' });
+  }
+});
+
+// Desconectar sesión de WhatsApp
 router.delete('/session', verifyToken, async (req, res) => {
   try {
     const userId = req.userId;
-    logger.info(`Deleting WhatsApp session for user: ${userId}`);
+    logger.info(`Disconnecting session for user: ${userId}`);
 
     const client = clients.get(userId);
     if (!client) {
-      logger.info(`No active session found for user: ${userId}`);
-      return res.status(404).json({ message: 'No active session found' });
+      logger.warn(`No active session found for user: ${userId}`);
+      return res.status(404).json({ error: 'No active session found' });
     }
 
+    // Desconectar el cliente
     await client.close();
     clients.delete(userId);
 
-    // Eliminar la sesión de Supabase
+    // Actualizar el estado en la base de datos
     const { error } = await supabase
       .from('whatsapp_sessions')
-      .delete()
-      .eq('owner_id', userId);
+      .upsert({
+        user_id: userId,
+        status: 'DISCONNECTED',
+        qr_code: null,
+        updated_at: new Date().toISOString()
+      });
 
     if (error) {
-      logger.error(`Error deleting session from Supabase for user ${userId}:`, error);
-      throw error;
+      logger.error(`Error updating session status: ${error.message}`);
+      return res.status(500).json({ error: 'Error updating session status' });
     }
 
-    logger.info(`WhatsApp session deleted successfully for user: ${userId}`);
-    res.status(200).json({ message: 'Session deleted successfully' });
+    logger.info(`Session disconnected for user: ${userId}`);
+    res.status(200).json({ status: 'success', message: 'Session disconnected' });
   } catch (error) {
-    logger.error(`Error deleting WhatsApp session for user ${req.userId}:`, error);
-    res.status(500).json({ 
-      error: 'Failed to delete WhatsApp session',
-      message: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred'
-    });
+    logger.error(`Error disconnecting session: ${error.message}`);
+    res.status(500).json({ error: 'Error disconnecting session' });
+  }
+});
+
+// Enviar mensaje de texto
+router.post('/message/text', verifyToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { phone, message } = req.body;
+
+    if (!phone || !message) {
+      return res.status(400).json({ error: 'Phone number and message are required' });
+    }
+
+    logger.info(`Sending text message to ${phone} for user: ${userId}`);
+
+    const client = clients.get(userId);
+    if (!client) {
+      logger.warn(`No active session found for user: ${userId}`);
+      return res.status(404).json({ error: 'No active session found' });
+    }
+
+    // Formatear el número de teléfono
+    const formattedPhone = phone.replace(/\D/g, '');
+    
+    // Enviar el mensaje
+    await client.sendText(`${formattedPhone}@c.us`, message);
+
+    logger.info(`Message sent successfully to ${phone} for user: ${userId}`);
+    res.status(200).json({ status: 'success', message: 'Message sent successfully' });
+  } catch (error) {
+    logger.error(`Error sending message: ${error.message}`);
+    res.status(500).json({ error: 'Error sending message' });
+  }
+});
+
+// Enviar archivo
+router.post('/message/file', verifyToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { phone, fileUrl, caption } = req.body;
+
+    if (!phone || !fileUrl) {
+      return res.status(400).json({ error: 'Phone number and file URL are required' });
+    }
+
+    logger.info(`Sending file to ${phone} for user: ${userId}`);
+
+    const client = clients.get(userId);
+    if (!client) {
+      logger.warn(`No active session found for user: ${userId}`);
+      return res.status(404).json({ error: 'No active session found' });
+    }
+
+    // Formatear el número de teléfono
+    const formattedPhone = phone.replace(/\D/g, '');
+
+    // Enviar el archivo
+    await client.sendFile(
+      `${formattedPhone}@c.us`,
+      fileUrl,
+      'file',
+      caption || ''
+    );
+
+    logger.info(`File sent successfully to ${phone} for user: ${userId}`);
+    res.status(200).json({ status: 'success', message: 'File sent successfully' });
+  } catch (error) {
+    logger.error(`Error sending file: ${error.message}`);
+    res.status(500).json({ error: 'Error sending file' });
   }
 });
 
