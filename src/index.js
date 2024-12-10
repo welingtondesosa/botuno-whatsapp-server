@@ -32,30 +32,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// Health check endpoint - debe estar antes del middleware de autenticación
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 // Auth middleware
 app.use(setupAuthMiddleware(supabase));
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  try {
-    const healthInfo = {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'production',
-      version: '1.0.0'
-    };
-    
-    logger.info('Health check request successful', healthInfo);
-    res.status(200).json(healthInfo);
-  } catch (error) {
-    logger.error('Health check failed:', error);
-    res.status(500).json({
-      status: 'error',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
 
 // Rutas de WhatsApp (cambiado de /api/whatsapp a /whatsapp)
 app.use('/whatsapp', whatsappRoutes);
