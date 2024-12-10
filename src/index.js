@@ -85,8 +85,9 @@ const supabase = createClient(
 // Auth middleware
 app.use(setupAuthMiddleware(supabase));
 
-// Rutas de WhatsApp
+// Rutas de WhatsApp (soporta ambas rutas: /whatsapp y /api/whatsapp)
 app.use('/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
