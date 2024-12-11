@@ -54,7 +54,6 @@ const corsOptions = {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      logger.warn(`Blocked request from unauthorized origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -65,76 +64,55 @@ const corsOptions = {
   maxAge: 600
 };
 
-// Middleware
-app.use(cors(corsOptions));
-app.use(express.json());
-
-// Request logging middleware
-app.use((req, res, next) => {
-  logger.info('Incoming request:', {
-    method: req.method,
-    path: req.url,
-    origin: req.headers.origin,
-    ip: req.ip,
-    headers: {
-      ...req.headers,
-      authorization: req.headers.authorization ? 'Present' : 'Missing'
-    }
-  });
-  next();
-});
-
-// Health check endpoint - debe estar antes del middleware de autenticación
-app.get('/health', (req, res) => {
-  logger.info('Health check requested');
-  res.status(200).json({ 
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
-  });
-});
-
-// Supabase client
+// Initialize Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY,
   {
     auth: {
       autoRefreshToken: false,
-      persistSession: false,
-      detectSessionInUrl: false
-    },
-    global: {
-      headers: {
-        'X-Client-Info': 'botuno-whatsapp-server'
-      }
+      persistSession: false
     }
   }
 );
 
-// Auth middleware - solo aplicar a las rutas de WhatsApp
-app.use(['/whatsapp', '/api/whatsapp'], setupAuthMiddleware(supabase));
+// Log middleware setup
+app.use((req, res, next) => {
+  logger.info('Incoming request:', {
+    method: req.method,
+    path: req.path,
+    headers: {
+      ...req.headers,
+      authorization: req.headers.authorization ? `${req.headers.authorization.substring(0, 20)}...` : 'none'
+    }
+  });
+  next();
+});
 
-// Rutas de WhatsApp
-app.use('/whatsapp', whatsappRoutes);
+// Apply CORS
+app.use(cors(corsOptions));
+
+// Body parser
+app.use(express.json());
+
+// Auth middleware
+app.use(setupAuthMiddleware(supabase));
+
+// Routes
 app.use('/api/whatsapp', whatsappRoutes);
 
-// Error handling middleware
+// Error handler
 app.use(errorHandler);
 
 // Start server
-const server = app.listen(port, '0.0.0.0', () => {
-  logger.info(`Server is running on port ${port}`);
-})
-.on('error', (error) => {
-  logger.error('Failed to start server:', error);
-  process.exit(1);
+app.listen(port, () => {
+  logger.info(`Server running on port ${port}`);
 });
 
 // Handle process termination
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
+  app.close(() => {
     logger.info('Server closed');
     process.exit(0);
   });
