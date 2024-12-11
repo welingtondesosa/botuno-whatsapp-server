@@ -95,8 +95,21 @@ app.use(cors(corsOptions));
 // Body parser
 app.use(express.json());
 
-// Auth middleware
-app.use(setupAuthMiddleware(supabase));
+// Health check endpoint (sin autenticación)
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Auth middleware (excluir health check)
+app.use((req, res, next) => {
+  if (req.path === '/health') {
+    return next();
+  }
+  setupAuthMiddleware(supabase)(req, res, next);
+});
 
 // Routes
 app.use('/api/whatsapp', whatsappRoutes);
