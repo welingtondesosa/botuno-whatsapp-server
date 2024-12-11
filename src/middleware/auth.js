@@ -3,13 +3,17 @@ const { logger } = require('../utils/logger');
 const setupAuthMiddleware = (supabase) => {
   return async (req, res, next) => {
     try {
-      logger.info('Auth middleware - Processing request', {
+      const authHeader = req.headers.authorization;
+      
+      logger.info('Auth middleware - Request details:', {
         path: req.path,
         method: req.method,
-        hasAuthHeader: !!req.headers.authorization
+        headers: {
+          ...req.headers,
+          authorization: authHeader ? `${authHeader.substring(0, 20)}...` : 'none'
+        }
       });
 
-      const authHeader = req.headers.authorization;
       if (!authHeader?.startsWith('Bearer ')) {
         logger.warn('Auth middleware - No Bearer token provided');
         return res.status(401).json({ error: 'No token provided' });
@@ -17,36 +21,61 @@ const setupAuthMiddleware = (supabase) => {
 
       const token = authHeader.split(' ')[1];
       
-      try {
-        // Intentar obtener el usuario directamente con el token
-        const { data: { user }, error } = await supabase.auth.getUser(token);
+      // Verificar si el token es válido usando el cliente de Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        logger.error('Auth middleware - Session error:', sessionError);
+        return res.status(401).json({ error: 'Session error', details: sessionError.message });
+      }
 
-        if (error) {
-          logger.error('Auth middleware - Error getting user:', error);
-          return res.status(401).json({ error: 'Invalid token' });
+      if (!session) {
+        logger.warn('Auth middleware - No session found');
+        
+        // Intentar verificar el token directamente
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+        
+        if (userError || !user) {
+          logger.error('Auth middleware - User verification failed:', userError);
+          return res.status(401).json({ error: 'Invalid token', details: userError?.message });
         }
 
-        if (!user) {
-          logger.warn('Auth middleware - No user found for token');
-          return res.status(401).json({ error: 'User not found' });
-        }
-
-        logger.info('Auth middleware - User authenticated successfully', {
+        logger.info('Auth middleware - User verified without session:', {
           userId: user.id,
           email: user.email
         });
 
-        // Adjuntar la información del usuario al request
         req.userId = user.id;
         req.user = user;
-        next();
-      } catch (error) {
-        logger.error('Auth middleware - Error verifying token:', error);
+        return next();
+      }
+
+      // Si tenemos una sesión, verificar que coincida con el token proporcionado
+      if (session.access_token !== token) {
+        logger.warn('Auth middleware - Token mismatch');
         return res.status(401).json({ error: 'Invalid token' });
       }
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+      if (userError || !user) {
+        logger.error('Auth middleware - User error:', userError);
+        return res.status(401).json({ error: 'Invalid user' });
+      }
+
+      logger.info('Auth middleware - User authenticated successfully', {
+        userId: user.id,
+        email: user.email,
+        sessionId: session.id
+      });
+
+      req.userId = user.id;
+      req.user = user;
+      req.session = session;
+      next();
     } catch (error) {
       logger.error('Auth middleware - Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Internal server error', details: error.message });
     }
   };
 };

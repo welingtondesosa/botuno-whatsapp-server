@@ -49,6 +49,8 @@ const errorHandler = (err, req, res, next) => {
 const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = process.env.CORS_ORIGIN.split(',').map(o => o.trim());
+    logger.info('CORS check:', { origin, allowedOrigins });
+    
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -57,9 +59,10 @@ const corsOptions = {
     }
   },
   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Info'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
   credentials: true,
-  optionsSuccessStatus: 204
+  maxAge: 600
 };
 
 // Middleware
@@ -68,10 +71,15 @@ app.use(express.json());
 
 // Request logging middleware
 app.use((req, res, next) => {
-  logger.info(`Incoming request: ${req.method} ${req.url}`, {
+  logger.info('Incoming request:', {
+    method: req.method,
+    path: req.url,
     origin: req.headers.origin,
     ip: req.ip,
-    hasAuth: !!req.headers.authorization
+    headers: {
+      ...req.headers,
+      authorization: req.headers.authorization ? 'Present' : 'Missing'
+    }
   });
   next();
 });
@@ -92,7 +100,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY,
   {
     auth: {
-      persistSession: false
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false
     },
     global: {
       headers: {
